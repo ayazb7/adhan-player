@@ -28,6 +28,18 @@ def get_prayer_times(testing=False):
 
     return prayer_times
 
+def get_next_prayer_time(prayer_times):
+    now = datetime.now().time()
+    future_prayers = {prayer: prayer_time for prayer, prayer_time in prayer_times.items() if prayer_time > now}
+    if not future_prayers:
+        # If there are no future prayers today, assume Fajr of the next day
+        next_prayer = 'Fajr'
+        next_prayer_time = datetime.combine(datetime.now() + timedelta(days=1), prayer_times[next_prayer])
+    else:
+        next_prayer = min(future_prayers, key=future_prayers.get)
+        next_prayer_time = datetime.combine(datetime.now(), future_prayers[next_prayer])
+    
+    return next_prayer, next_prayer_time
 
 def check_and_play_adhan(prayer_times):
     now = datetime.now().time()
@@ -43,7 +55,9 @@ if __name__ == "__main__":
     while True:
         prayer_times = get_prayer_times(testing=False)
         check_and_play_adhan(prayer_times)
-        now = datetime.now()
-        next_minute = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
-        sleep_duration = (next_minute - now).total_seconds()
+        
+        next_prayer, next_prayer_time = get_next_prayer_time(prayer_times)
+        print(f"Next prayer is {next_prayer} at {next_prayer_time.time()}")
+        
+        sleep_duration = (next_prayer_time - datetime.now()).total_seconds()
         time.sleep(sleep_duration)
