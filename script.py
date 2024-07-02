@@ -26,7 +26,7 @@ def load_cached_prayer_times():
     return None
 
 # Function to get prayer times
-def get_prayer_times(testing=False):
+def get_prayer_times():
     url = "https://www.croydonmosque.com/?section=prayer"
     try:
         response = requests.get(url)
@@ -79,15 +79,20 @@ def get_prayer_times(testing=False):
 
 def get_next_prayer_time(prayer_times, cached_prayer_times):
     now = datetime.now().time()
+    today_date = datetime.now().strftime('%d').zfill(2)
+    tomorrow_date = (datetime.now() + timedelta(days=1)).strftime('%d').zfill(2)
+    
     future_prayers = {prayer: prayer_time for prayer, prayer_time in prayer_times.items() if prayer_time > now}
     
     if not future_prayers:
         next_prayer = 'Fajr'
-        tomorrow_date = (datetime.now() + timedelta(days=1)).strftime('%d').zfill(2)
         next_prayer_time = datetime.combine(datetime.now() + timedelta(days=1), cached_prayer_times[tomorrow_date][next_prayer])
     else:
         next_prayer = min(future_prayers, key=future_prayers.get)
         next_prayer_time = datetime.combine(datetime.now(), future_prayers[next_prayer])
+        
+        if next_prayer == 'Fajr' and now > prayer_times['Ishaa']:
+            next_prayer_time = datetime.combine(datetime.now() + timedelta(days=1), cached_prayer_times[tomorrow_date][next_prayer])
     
     return next_prayer, next_prayer_time
 
@@ -101,11 +106,11 @@ def check_and_play_adhan(prayer_times):
 def play_adhan():
     os.system('afplay adhan.mp3')
     # os.system('start adhan.mp3')
-    # os.system('omxplayer -o local adhan.mp3') 
+    # os.system('omxplayer -o alsa:hw:2,0 adhan.mp3') 
 
 def main():
     while True:
-        prayer_times = get_prayer_times(testing=False)
+        prayer_times = get_prayer_times()
         cached_prayer_times = load_cached_prayer_times()
         if prayer_times:
             check_and_play_adhan(prayer_times)
