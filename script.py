@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, time as dtime
 import time
 import os
 import json
+import argparse
 
 CACHE_FILE = 'prayer_times_cache.json'
 
@@ -42,7 +43,6 @@ def get_prayer_times():
             if len(cols) > 11: 
                 date = cols[0].text.strip().zfill(2) 
                 prayer_times[date] = {
-                    # 'test': dtime(hour=16, minute=30),
                     'Fajr': datetime.strptime(cols[3].text.strip() + 'am', '%I:%M%p').time(),
                     'Dhuhr': datetime.strptime(cols[6].text.strip() + 'pm', '%I:%M%p').time(),
                     'Asr': datetime.strptime(cols[8].text.strip() + 'pm', '%I:%M%p').time(),
@@ -96,24 +96,34 @@ def get_next_prayer_time(prayer_times, cached_prayer_times):
     
     return next_prayer, next_prayer_time
 
-def check_and_play_adhan(prayer_times):
+def check_and_play_adhan(prayer_times, audio_command):
     now = datetime.now().time()
     for prayer, prayer_time in prayer_times.items():
         if now.hour == prayer_time.hour and now.minute == prayer_time.minute:
             print(f"It's time for {prayer} prayer.")
-            play_adhan()
+            play_adhan(audio_command)
 
-def play_adhan():
-    os.system('afplay adhan.mp3')
-    # os.system('start adhan.mp3')
-    # os.system('omxplayer -o alsa:hw:2,0 adhan.mp3') 
+def play_adhan(audio_command):
+    os.system(audio_command)
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Adhan Player")
+    parser.add_argument('platform', choices=['windows', 'linux', 'mac'], help="The platform to run the script on")
+    return parser.parse_args()
 
 def main():
+    args = parse_args()
+    audio_command = {
+        'windows': 'start adhan.mp3',
+        'linux': 'omxplayer -o alsa:hw:2,0 adhan.mp3',
+        'mac': 'afplay adhan.mp3'
+    }[args.platform]
+
     while True:
         prayer_times = get_prayer_times()
         cached_prayer_times = load_cached_prayer_times()
         if prayer_times:
-            check_and_play_adhan(prayer_times)
+            check_and_play_adhan(prayer_times, audio_command)
         
             next_prayer, next_prayer_time = get_next_prayer_time(prayer_times, cached_prayer_times)
             print(f"Next prayer is {next_prayer} at {next_prayer_time.time()}")
