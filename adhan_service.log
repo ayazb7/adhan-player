@@ -1,0 +1,4 @@
+2024-11-09 16:22:28,994 - DEBUG - Starting new HTTPS connection (1): croydonmosque.com:443
+2024-11-09 16:22:29,235 - DEBUG - https://croydonmosque.com:443 "GET /?section=prayer HTTP/1.1" 200 None
+2024-11-09 16:22:29,288 - INFO - Fetched prayer times: {'Fajr': '05:13', 'Dhuhr': '11:48', 'Asr': '14:33', 'Maghrib': '16:24', 'Ishaa': '18:15'}
+2024-11-09 16:22:29,288 - INFO - Next prayer is Maghrib at 16:24:00

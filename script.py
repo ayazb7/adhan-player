@@ -1,109 +1,101 @@
-import requests
-from bs4 import BeautifulSoup
-from datetime import datetime, timedelta, time as dtime
-import time
 import os
-import json
+import time
+import logging
 import argparse
+from datetime import datetime, timedelta
+from bs4 import BeautifulSoup
+import requests
 
-CACHE_FILE = 'prayer_times_cache.json'
+# Clear logs at the start of the script
+with open('adhan_service.log', 'w'):
+    pass
 
-def time_to_string(t):
-    return t.strftime('%H:%M')
+logging.basicConfig(
+    filename='adhan_service.log',
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+)
 
-def string_to_time(s):
-    return datetime.strptime(s, '%H:%M').time()
-
-def cache_prayer_times(prayer_times):
-    serializable_prayer_times = {date: {prayer: time_to_string(t) for prayer, t in times.items()} for date, times in prayer_times.items()}
-    with open(CACHE_FILE, 'w') as f:
-        json.dump(serializable_prayer_times, f)
-
-def load_cached_prayer_times():
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, 'r') as f:
-            cached_prayer_times = json.load(f)
-            return {date: {prayer: string_to_time(t) for prayer, t in times.items()} for date, times in cached_prayer_times.items()}
-    return None
-
-# Function to get prayer times
-def get_prayer_times():
-    url = "https://www.croydonmosque.com/?section=prayer"
+def fetch_prayer_times():
+    """Fetch prayer times from the mosque website and parse the table."""
+    url = 'https://croydonmosque.com/?section=prayer'
     try:
         response = requests.get(url)
         response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
-
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Locate the correct table
+        table = soup.find('table', {'id': 'salaat_times_month'})
+        if not table:
+            raise ValueError("Prayer times table not found.")
+        
+        rows = table.find_all('tr')[2:]  # Skip header rows
+        
         prayer_times = {}
-        table = soup.find('table', id='salaat_times_month')
-        rows = table.find_all('tr')
-
+        today = datetime.now().strftime('%d').lstrip('0')  # Strip leading zero
+        
         for row in rows:
             cols = row.find_all('td')
-            if len(cols) > 11: 
-                date = cols[0].text.strip().zfill(2) 
-                prayer_times[date] = {
-                    'Fajr': datetime.strptime(cols[3].text.strip() + 'am', '%I:%M%p').time(),
-                    'Dhuhr': datetime.strptime(cols[6].text.strip() + 'pm', '%I:%M%p').time(),
-                    'Asr': datetime.strptime(cols[8].text.strip() + 'pm', '%I:%M%p').time(),
-                    'Maghrib': datetime.strptime(cols[10].text.strip() + 'pm', '%I:%M%p').time(),
-                    'Ishaa': datetime.strptime(cols[11].text.strip() + 'pm', '%I:%M%p').time()
-                }
-        
-        cache_prayer_times(prayer_times)
-        
-        today_date = datetime.now().strftime('%d').zfill(2)
-        today_prayer_times = prayer_times.get(today_date)
-        
-        if today_prayer_times:
-            for prayer, prayer_time in today_prayer_times.items():
-                print(f"{prayer}: {prayer_time}")
+            if not cols:
+                continue  # Skip empty rows
+            
+            # Ensure we match today's date
+            if cols[0].text.strip() == today:
+                prayer_times['Fajr'] = cols[3].text.strip()
+                prayer_times['Dhuhr'] = cols[6].text.strip()
+                prayer_times['Asr'] = cols[8].text.strip()
+                prayer_times['Maghrib'] = cols[10].text.strip()
+                prayer_times['Ishaa'] = cols[11].text.strip()
+                break
 
-        return today_prayer_times
+        if not prayer_times:
+            raise ValueError("Prayer times for today not found in the table.")
+        
+        # Convert to 24-hour format, handling PM for Asr, Maghrib, Ishaa
+        for prayer, time_str in prayer_times.items():
+            time_obj = datetime.strptime(time_str, '%H:%M')
+            if prayer in ['Asr', 'Maghrib', 'Ishaa'] and time_obj.hour < 12:
+                time_obj += timedelta(hours=12)  # Convert PM times
+            prayer_times[prayer] = time_obj.strftime('%H:%M')
+        
+        return prayer_times
 
     except Exception as e:
-        print(f"Failed to fetch from the website due to {e}. Loading from cache...")
-        cached_prayer_times = load_cached_prayer_times()
-        if cached_prayer_times:
-            today_date = datetime.now().strftime('%d').zfill(2)
-            today_prayer_times = cached_prayer_times.get(today_date)
-            
-            if today_prayer_times:
-                for prayer, prayer_time in today_prayer_times.items():
-                    print(f"{prayer}: {prayer_time}")
+        logging.error(f"Failed to fetch prayer times: {e}")
+        return None
 
-            return today_prayer_times
-        else:
-            print("No cached data available.")
-            return {}
+def parse_prayer_time(time_str):
+    """Parses prayer time strings to datetime."""
+    try:
+        prayer_time = datetime.strptime(time_str, '%H:%M')
+        now = datetime.now()
+        return prayer_time.replace(year=now.year, month=now.month, day=now.day)
+    except Exception as e:
+        logging.error(f"Failed to parse prayer time {time_str}: {e}")
+        return None
 
-def get_next_prayer_time(prayer_times, cached_prayer_times):
-    now = datetime.now().time()
-    today_date = datetime.now().strftime('%d').zfill(2)
-    tomorrow_date = (datetime.now() + timedelta(days=1)).strftime('%d').zfill(2)
-    
-    future_prayers = {prayer: prayer_time for prayer, prayer_time in prayer_times.items() if prayer_time > now}
-    
-    if not future_prayers:
-        next_prayer = 'Fajr'
-        next_prayer_time = datetime.combine(datetime.now() + timedelta(days=1), cached_prayer_times[tomorrow_date][next_prayer])
-    else:
-        next_prayer = min(future_prayers, key=future_prayers.get)
-        next_prayer_time = datetime.combine(datetime.now(), future_prayers[next_prayer])
-        
-        if next_prayer == 'Fajr' and now > prayer_times['Ishaa']:
-            next_prayer_time = datetime.combine(datetime.now() + timedelta(days=1), cached_prayer_times[tomorrow_date][next_prayer])
-    
-    return next_prayer, next_prayer_time
+def get_next_prayer_time(prayer_times):
+    """Returns the next prayer time and its name."""
+    now = datetime.now()
+    for prayer, time_str in prayer_times.items():
+        prayer_time = parse_prayer_time(time_str)
+        if prayer_time and prayer_time > now:
+            return prayer, prayer_time
+    return None, None
 
 def check_and_play_adhan(prayer_times, audio_command):
-    now = datetime.now().time()
-    for prayer, prayer_time in prayer_times.items():
-        if now.hour == prayer_time.hour and now.minute == prayer_time.minute:
-            print(f"It's time for {prayer} prayer.")
+    """Check if it's time for Adhan and play it."""
+    now = datetime.now()
+    for prayer, time_str in prayer_times.items():
+        prayer_time = parse_prayer_time(time_str)
+        if prayer_time and now >= prayer_time and now < prayer_time + timedelta(minutes=5):
+            logging.info(f"It's time for {prayer} prayer.")
             play_adhan(audio_command)
+            break
 
 def play_adhan(audio_command):
+    """Play the Adhan audio."""
+    logging.info("Playing Adhan...")
     os.system(audio_command)
 
 def parse_args():
@@ -115,23 +107,27 @@ def main():
     args = parse_args()
     audio_command = {
         'windows': 'start adhan.mp3',
-        'linux': 'omxplayer -o alsa:hw:2,0 adhan.mp3',
+        'linux': 'omxplayer -o alsa:hw:UACDemoV10,0 adhan.mp3',
         'mac': 'afplay adhan.mp3'
     }[args.platform]
 
     while True:
-        prayer_times = get_prayer_times()
-        cached_prayer_times = load_cached_prayer_times()
+        prayer_times = fetch_prayer_times()
+        logging.info(f"Fetched prayer times: {prayer_times}")
         if prayer_times:
             check_and_play_adhan(prayer_times, audio_command)
-        
-            next_prayer, next_prayer_time = get_next_prayer_time(prayer_times, cached_prayer_times)
-            print(f"Next prayer is {next_prayer} at {next_prayer_time.time()}")
-            
-            sleep_duration = (next_prayer_time - datetime.now()).total_seconds()
-            time.sleep(sleep_duration)
+
+            next_prayer, next_prayer_time = get_next_prayer_time(prayer_times)
+            if next_prayer:
+                logging.info(f"Next prayer is {next_prayer} at {next_prayer_time.time()}")
+                sleep_duration = (next_prayer_time - datetime.now()).total_seconds()
+                time.sleep(max(0, sleep_duration))
+            else:
+                logging.warning("No upcoming prayers found. Retrying in 10 minutes.")
+                time.sleep(600)
         else:
-            time.sleep(60)
+            logging.error("Failed to fetch prayer times. Retrying in 10 minutes.")
+            time.sleep(600)
 
 if __name__ == "__main__":
     main()
