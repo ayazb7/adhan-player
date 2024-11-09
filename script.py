@@ -2,9 +2,12 @@ import os
 import time
 import logging
 import argparse
+import json
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 import requests
+
+CACHE_FILE = 'prayer_times_cache.json'
 
 # Clear logs at the start of the script
 with open('adhan_service.log', 'w'):
@@ -15,6 +18,24 @@ logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
+
+def load_cache():
+    """Load prayer times cache from the JSON file."""
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, 'r') as file:
+                return json.load(file)
+        except Exception as e:
+            logging.error(f"Failed to load cache: {e}")
+    return {}
+
+def save_cache(cache):
+    """Save prayer times to the cache JSON file."""
+    try:
+        with open(CACHE_FILE, 'w') as file:
+            json.dump(cache, file, indent=4)
+    except Exception as e:
+        logging.error(f"Failed to save cache: {e}")
 
 def fetch_prayer_times():
     """Fetch prayer times from the mosque website and parse the table."""
@@ -58,11 +79,25 @@ def fetch_prayer_times():
                 time_obj += timedelta(hours=12)  # Convert PM times
             prayer_times[prayer] = time_obj.strftime('%H:%M')
         
+        # Update the cache
+        cache = load_cache()
+        cache[today] = prayer_times
+        save_cache(cache)
+        
         return prayer_times
 
     except Exception as e:
         logging.error(f"Failed to fetch prayer times: {e}")
-        return None
+        
+        # Fallback to cache
+        cache = load_cache()
+        today = datetime.now().strftime('%d').lstrip('0')
+        if today in cache:
+            logging.info("Using cached prayer times.")
+            return cache[today]
+        else:
+            logging.error("No cached prayer times available.")
+            return None
 
 def parse_prayer_time(time_str):
     """Parses prayer time strings to datetime."""
